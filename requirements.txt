@@ -1,0 +1,11 @@
+flask
+flask-session
+nltk
+networkx
+matplotlib
+pandas
+numpy
+Pillow
+datasets
+kaggle
+gunicorn

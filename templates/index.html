@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>Synapse — HMM Autocomplete Engine</title>
+  <meta name="description" content="Synapse: Advanced HMM-based sentence generation with real-time POS analysis, Laplace smoothing and temperature decoding."/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=5"/>
+</head>
+<body class="app-body page-fade-in" data-model-ready="{{ 'true' if model_ready else 'false' }}">
+
+  <!-- Background -->
+  <div class="bg-grid"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+
+  <!-- ── TOP NAV ─────────────────────────────────────────────── -->
+  <nav class="topnav glass">
+    <div class="nav-brand">
+      <span class="nav-icon">⬡</span>
+      <span class="nav-title">Synapse</span>
+      <span class="nav-sub">HMM Engine</span>
+    </div>
+
+    <div class="nav-status" id="navStatus">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Loading model…</span>
+    </div>
+
+    <div class="nav-user">
+      <span class="user-avatar">{{ username[0].upper() }}</span>
+      <span class="user-name">{{ username }}</span>
+      <a href="/logout" class="btn-ghost btn-sm">Sign out</a>
+    </div>
+  </nav>
+
+  <!-- ── MAIN LAYOUT ────────────────────────────────────────── -->
+  <div class="app-layout">
+
+    <!-- ── SIDEBAR ──────────────────────────────────────────── -->
+    <aside class="sidebar glass" id="sidebar">
+
+      <div class="sidebar-section">
+        <h3 class="sidebar-heading">⚙️ Generation</h3>
+
+        <label class="ctrl-label">Max Length <span class="ctrl-val" id="maxGenVal">15</span></label>
+        <input type="range" class="ctrl-slider" id="maxGen" min="5" max="25" value="15"/>
+
+        <label class="ctrl-label">Temperature <span class="ctrl-val" id="temperatureVal">0.55</span></label>
+        <input type="range" class="ctrl-slider" id="temperature" min="0" max="2" step="0.05" value="0.55"/>
+        <p class="ctrl-hint">0 = greedy · 1 = balanced · 2 = chaotic</p>
+
+        <label class="ctrl-label">Laplace k <span class="ctrl-val" id="kVal">0.001</span></label>
+        <input type="range" class="ctrl-slider" id="kSmooth" min="0.001" max="0.5" step="0.001" value="0.001"/>
+        <p class="ctrl-hint">Lower = sharper predictions, higher = more smoothing</p>
+      </div>
+
+      <div class="sidebar-section">
+        <h3 class="sidebar-heading">📂 Custom Corpus</h3>
+        <label class="upload-zone" id="uploadZone">
+          <span class="upload-icon">⬆</span>
+          <span class="upload-text">Drop file or click</span>
+          <span class="upload-hint">.txt · .csv · .json</span>
+          <input type="file" id="fileInput" accept=".txt,.csv,.json" hidden/>
+        </label>
+        <div id="uploadStatus" class="upload-status hidden"></div>
+      </div>
+
+      <div class="sidebar-section profile-section">
+        <h3 class="sidebar-heading">👤 Profile</h3>
+        <div class="profile-stat">
+          <span class="stat-label">Base Corpus</span>
+          <span class="stat-val" id="baseCount">{{ base_count|int }}</span>
+        </div>
+        <div class="profile-stat">
+          <span class="stat-label">Learned Interactions</span>
+          <span class="stat-val" id="userCount">{{ user_count }}</span>
+        </div>
+        <div class="profile-stat">
+          <span class="stat-label">Vocabulary</span>
+          <span class="stat-val" id="vocabSize">—</span>
+        </div>
+        <div class="profile-stat">
+          <span class="stat-label">Avg Sentence Len</span>
+          <span class="stat-val" id="avgSentLen">—</span>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ── MAIN CONTENT ──────────────────────────────────────── -->
+    <main class="main-content">
+
+      <div id="searchContainer" class="search-container centered">
+      <!-- Hero -->
+      <div class="hero-block">
+        <h1 class="hero-title">HMM Sentence Autocomplete</h1>
+        <p class="hero-sub">2nd-order Markov model · Bigram/trigram transitions · Contextual word selection</p>
+      </div>
+
+      <!-- Prompt box -->
+      <div class="prompt-card glass">
+        <div class="prompt-row">
+          <div class="prompt-field-wrap">
+            <span class="prompt-prefix">▶</span>
+            <input
+              type="text"
+              id="promptInput"
+              class="prompt-input"
+              placeholder="Type a partial sentence… e.g. The government should"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <button class="btn-predict" id="predictBtn" disabled>
+            <span class="btn-label">Predict</span>
+            <span class="btn-spinner hidden" id="btnSpinner">◌</span>
+          </button>
+        </div>
+        <p class="prompt-hint">Press <kbd>Enter</kbd> or click Predict to generate 3 completions</p>
+      </div>
+
+      <!-- Loading overlay (model not ready) -->
+      <div class="loading-banner glass" id="loadingBanner">
+        <div class="loading-spinner">◌</div>
+        <div>
+          <p class="loading-title">Model is initialising</p>
+          <p class="loading-sub" id="loadingDetail">{{ model_status }}</p>
+        </div>
+      </div>
+      </div><!-- /searchContainer -->
+
+      <!-- Suggestions area -->
+      <div id="suggestionsArea" class="suggestions-area hidden">
+
+        <div class="suggestions-header">
+          <h2 class="suggestions-title">💡 Generated Suggestions</h2>
+          <div class="legend">
+            <span class="tag noun">Noun</span>
+            <span class="tag verb">Verb</span>
+            <span class="tag adj">Adjective</span>
+            <span class="tag other">Other</span>
+          </div>
+        </div>
+
+        <div id="suggestionsList" class="suggestions-list"></div>
+
+      </div>
+
+      <!-- Explainability dashboard -->
+      <div id="explainPanel" class="explain-panel glass hidden">
+
+        <h2 class="explain-title">
+          🔍 Explainability Dashboard
+          <span id="modelAccuracyVal" class="acc-pill">Acc: ...</span>
+        </h2>
+
+        <div class="explain-tabs">
+          <button class="explain-tab active" data-tab="trace">🤖 Reasoning Trace</button>
+          <button class="explain-tab" data-tab="transitions">📊 Top Transitions</button>
+        </div>
+
+        <div class="explain-body">
+          <div class="explain-pane active" id="pane-trace">
+            <div class="trace-tabs">
+              <button class="trace-tab active" data-idx="0">Sug 1</button>
+              <button class="trace-tab" data-idx="1">Sug 2</button>
+              <button class="trace-tab" data-idx="2">Sug 3</button>
+            </div>
+            <p class="explain-desc">Interactive Markov chain transition visualization:</p>
+            <div id="mermaidContainer" class="mermaid-container"></div>
+          </div>
+
+          <div class="explain-pane" id="pane-transitions">
+            <p class="explain-desc">Top-5 tag transitions from last tag in prompt:</p>
+            <div id="transitionsGrid" class="transitions-grid"></div>
+          </div>
+        </div>
+
+      </div>
+
+    </main>
+  </div><!-- /app-layout -->
+
+
+<!-- ── SUGGESTION CARD TEMPLATE (cloned by JS) ─────────────── -->
+<template id="suggestionTpl">
+  <div class="suggestion-card glass" data-index="">
+    <div class="sug-header">
+      <span class="sug-num"></span>
+      <div class="sug-actions">
+        <button class="sug-btn accept-btn" title="Accept">✅ Accept</button>
+        <button class="sug-btn edit-btn"   title="Edit">✏️ Edit</button>
+        <button class="sug-btn reject-btn" title="Reject">❌ Reject</button>
+      </div>
+    </div>
+    <div class="pos-box sug-text"></div>
+    <div class="edit-row hidden">
+      <input type="text" class="edit-input" placeholder="Edit suggestion…"/>
+      <button class="sug-btn save-btn">💾 Save</button>
+    </div>
+    <div class="feedback-row hidden"></div>
+  </div>
+</template>
+
+
+<script>
+// ── POS colour-coding (client-side) ──────────────────────────
+const POS_NOUNS  = new Set(['NN','NNS','NNP','NNPS']);
+const POS_VERBS  = new Set(['VB','VBD','VBG','VBN','VBP','VBZ','MD']);
+const POS_ADJS   = new Set(['JJ','JJR','JJS','RB','RBR','RBS']);
+
+function posClass(word) {
+  // Simple heuristic — full POS would require server round-trip
+  const w = word.toLowerCase();
+  if (/^(the|a|an|in|of|to|is|was|and|or|for|on|at|by|it|that|this|with|as|be|are|were|been|not|but|from|has|had|have|do|did|will|would|could|should|may|might|can|shall|he|she|they|we|i|you|its|his|her|their|our|my|your)$/.test(w))
+    return 'other';
+  if (/ing$|tion$|ness$|ment$|ity$|ism$|ist$|age$|ance$|ence$/.test(w)) return 'noun';
+  if (/ed$|ing$|ify$|ize$|ise$|ate$/.test(w)) return 'verb';
+  if (/ly$|ful$|less$|ous$|al$|ive$|ic$|ical$/.test(w)) return 'adj';
+  if (/tion$|ment$|ness$|ity$|ium$|ism$/.test(w)) return 'noun';
+  return 'other';
+}
+
+function colourSentence(text) {
+  return text.split(' ').map((word, index) => {
+    const cls = posClass(word);
+    // Add 80ms delay per word for a brisk typing effect
+    const delay = (index * 0.08).toFixed(2);
+    return `<span class="pos-word ${cls} type-word" style="animation-delay: ${delay}s">${word}</span>`;
+  }).join(' ');
+}
+
+// ── State ─────────────────────────────────────────────────────
+let suggestions = [];
+let currentLogs = [];
+let modelReady  = document.body.dataset.modelReady === 'true';
+
+// ── Mermaid initialisation ────────────────────────────────────
+mermaid.initialize({ 
+  startOnLoad: false, 
+  theme: 'dark',
+  themeVariables: { fontSize: '16px' }
+});
+
+// ── DOM refs ──────────────────────────────────────────────────
+const promptInput    = document.getElementById('promptInput');
+const predictBtn     = document.getElementById('predictBtn');
+const btnSpinner     = document.getElementById('btnSpinner');
+const suggestionsArea= document.getElementById('suggestionsArea');
+const suggestionsList= document.getElementById('suggestionsList');
+const explainPanel   = document.getElementById('explainPanel');
+const mermaidContainer = document.getElementById('mermaidContainer');
+const transGrid      = document.getElementById('transitionsGrid');
+const loadingBanner  = document.getElementById('loadingBanner');
+const loadingDetail  = document.getElementById('loadingDetail');
+const searchContainer= document.getElementById('searchContainer');
+const statusDot      = document.getElementById('statusDot');
+const statusText     = document.getElementById('statusText');
+const baseCount      = document.getElementById('baseCount');
+const userCountEl    = document.getElementById('userCount');
+const vocabSize      = document.getElementById('vocabSize');
+const avgSentLen     = document.getElementById('avgSentLen');
+
+// ── Slider bindings ───────────────────────────────────────────
+function bindSlider(id, valId, decimals=2) {
+  const sl = document.getElementById(id);
+  const lbl= document.getElementById(valId);
+  sl.addEventListener('input', () => lbl.textContent = parseFloat(sl.value).toFixed(decimals));
+}
+bindSlider('maxGen','maxGenVal',0);
+bindSlider('temperature','temperatureVal',2);
+bindSlider('kSmooth','kVal',3);
+
+// ── Status polling ────────────────────────────────────────────
+async function pollStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    modelReady = d.ready;
+    statusText.textContent = d.status;
+    statusDot.className = 'status-dot ' + (d.ready ? 'ready' : 'loading');
+    predictBtn.disabled = !d.ready;
+
+    if (d.ready) {
+      loadingBanner.classList.add('hidden');
+      vocabSize.textContent  = d.vocab_size.toLocaleString();
+      avgSentLen.textContent = d.avg_sent_len + ' words';
+      baseCount.textContent  = d.base_count.toLocaleString();
+    } else {
+      loadingDetail.textContent = d.status;
+    }
+  } catch(e) {}
+
+  if (!modelReady) setTimeout(pollStatus, 2000);
+}
+pollStatus();
+
+// ── Predict ───────────────────────────────────────────────────
+async function predict() {
+  const prompt = promptInput.value.trim();
+  if (!prompt || !modelReady) return;
+
+  predictBtn.querySelector('.btn-label').classList.add('hidden');
+  btnSpinner.classList.remove('hidden');
+  predictBtn.disabled = true;
+
+  const payload = {
+    prompt,
+    temperature: parseFloat(document.getElementById('temperature').value),
+    max_gen:     parseInt(document.getElementById('maxGen').value),
+    k_smooth:    parseFloat(document.getElementById('kSmooth').value),
+    n: 3,
+  };
+
+  try {
+    const r = await fetch('/api/predict', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    suggestions = d.suggestions;
+    renderSuggestions(prompt);
+    userCountEl.textContent = parseInt(userCountEl.textContent) + 1;
+  } catch(e) {
+    alert('Network error — is Flask running?');
+  } finally {
+    predictBtn.querySelector('.btn-label').classList.remove('hidden');
+    btnSpinner.classList.add('hidden');
+    predictBtn.disabled = false;
+  }
+}
+
+promptInput.addEventListener('keydown', e => { if (e.key === 'Enter') predict(); });
+predictBtn.addEventListener('click', predict);
+
+// ── Render suggestions ────────────────────────────────────────
+function renderSuggestions(prompt) {
+  searchContainer.classList.remove('centered');
+  
+  suggestionsList.innerHTML = '';
+  const tpl = document.getElementById('suggestionTpl');
+
+  // Save the generated logs globally for the trace tabs
+  currentLogs = suggestions.map(s => s.log);
+
+  suggestions.forEach((sug, idx) => {
+    const card = tpl.content.cloneNode(true).querySelector('.suggestion-card');
+    card.dataset.index = idx;
+    card.querySelector('.sug-num').textContent  = `Suggestion ${idx + 1}`;
+    card.querySelector('.sug-text').innerHTML   = colourSentence(sug.text);
+
+    // Accept
+    card.querySelector('.accept-btn').addEventListener('click', async () => {
+      await acceptSuggestion(sug.text, card);
+    });
+
+    // Reject
+    card.querySelector('.reject-btn').addEventListener('click', () => {
+      card.classList.add('fade-out');
+      setTimeout(() => card.remove(), 350);
+    });
+
+    // Edit / Save
+    const editRow  = card.querySelector('.edit-row');
+    const editInput= card.querySelector('.edit-input');
+    card.querySelector('.edit-btn').addEventListener('click', () => {
+      editRow.classList.toggle('hidden');
+      editInput.value = sug.text;
+      editInput.focus();
+    });
+    card.querySelector('.save-btn').addEventListener('click', async () => {
+      const val = editInput.value.trim();
+      if (!val) return;
+      sug.text = val;
+      card.querySelector('.sug-text').innerHTML = colourSentence(val);
+      editRow.classList.add('hidden');
+      await acceptSuggestion(val, card);
+    });
+
+    suggestionsList.appendChild(card);
+  });
+
+  suggestionsArea.classList.remove('hidden');
+  explainPanel.classList.remove('hidden');
+  renderTraceGraph(0); // Default to rendering Sug 1 graph
+}
+
+async function acceptSuggestion(text, card) {
+  try {
+    const r = await fetch('/api/accept', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({sentence: text}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      userCountEl.textContent = d.user_count;
+      const fb = card.querySelector('.feedback-row');
+      fb.textContent = '✅ Added to your personal corpus!';
+      fb.classList.remove('hidden');
+      fb.classList.add('feedback-success');
+      card.querySelector('.sug-actions').classList.add('hidden');
+    }
+  } catch(e) {}
+}
+
+function buildMermaidGraph(log) {
+  let graph = `graph LR\n  classDef node fill:#1e1e2d,stroke:#3b3b4f,stroke-width:1px,color:#d4d4d8;\n`;
+  graph += `  classDef endNode fill:#4a1515,stroke:#e53e3e,stroke-width:2px,color:#ffffff;\n`;
+  
+  let prevId = 'P_START';
+  graph += `  ${prevId}([START]):::node\n`;
+  
+  for (let i = 0; i < (log || []).length; i++) {
+    let step = log[i];
+    let parts = step.split(' | ');
+    let trans = parts[0];
+    let word = parts[1] ? parts[1].replace(/'/g, '').replace(/"/g, '') : "start";
+    
+    if (trans.includes('jumped to:')) {
+      let nextTag = trans.split(': ')[1].trim();
+      let nextId = `N_${i}_${nextTag}`;
+      graph += `  ${nextId}(${nextTag}):::node\n`;
+      graph += `  ${prevId} -.->|jumped| ${nextId}\n`;
+      prevId = nextId;
+    } else if (trans.includes('->')) {
+      let tparts = trans.split('->').map(s => s.trim());
+      let nextTag = tparts[1];
+      let nextId = `N_${i}_${nextTag}`;
+      let displayNode = nextTag === '__END__' ? `[[END]]:::endNode` : `(${nextTag}):::node`;
+      graph += `  ${nextId}${displayNode}\n`;
+      graph += `  ${prevId} -->|${word}| ${nextId}\n`;
+      prevId = nextId;
+    }
+  }
+  return graph;
+}
+
+async function renderTraceGraph(index) {
+  if (!currentLogs[index]) { mermaidContainer.innerHTML = ''; return; }
+  
+  // Highlight active tab
+  document.querySelectorAll('.trace-tab').forEach(t => t.classList.remove('active'));
+  const activeTab = document.querySelector(`.trace-tab[data-idx="${index}"]`);
+  if (activeTab) activeTab.classList.add('active');
+  
+  const graphDef = buildMermaidGraph(currentLogs[index]);
+  mermaidContainer.innerHTML = `<div class="mermaid" id="mermaidGraph_${index}">${graphDef}</div>`;
+  try {
+    await mermaid.run({ querySelector: `.mermaid` });
+  } catch (e) {
+    console.error('Mermaid render failed', e);
+  }
+}
+
+// Bind trace sub-tab clicks
+document.querySelectorAll('.trace-tab').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    renderTraceGraph(parseInt(btn.dataset.idx));
+  });
+});
+
+// ── Explain tabs ──────────────────────────────────────────────
+document.querySelectorAll('.explain-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.explain-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.explain-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('pane-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── File upload ───────────────────────────────────────────────
+const uploadZone  = document.getElementById('uploadZone');
+const fileInput   = document.getElementById('fileInput');
+const uploadStatus= document.getElementById('uploadStatus');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files.length) doUpload(fileInput.files[0]); });
+
+async function doUpload(file) {
+  uploadStatus.textContent = `Uploading ${file.name}…`;
+  uploadStatus.className = 'upload-status';
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const r = await fetch('/api/upload', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.ok) {
+      uploadStatus.textContent = `✅ Loaded ${d.loaded.toLocaleString()} sentences — model is rebuilding…`;
+      uploadStatus.classList.add('text-success');
+      pollStatus();
+    } else {
+      uploadStatus.textContent = `❌ ${d.error}`;
+      uploadStatus.classList.add('text-error');
+    }
+  } catch(e) {
+    uploadStatus.textContent = '❌ Upload failed.';
+    uploadStatus.classList.add('text-error');
+  }
+}
+</script>
+</body>
+</html>

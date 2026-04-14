@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Synapse — Portal Access</title>
+  <meta name="description" content="Synapse HMM Autocomplete Engine – Secure Login"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=2"/>
+</head>
+<body class="auth-body">
+
+  <!-- Animated background particles -->
+  <div class="bg-grid"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <div class="auth-wrapper">
+
+    <!-- Logo / brand -->
+    <div class="auth-brand">
+      <div class="brand-icon">⬡</div>
+      <h1 class="brand-name">Synapse</h1>
+      <p class="brand-tagline">HMM Autocomplete Engine</p>
+    </div>
+
+    <!-- Card -->
+    <div class="auth-card glass">
+
+      <!-- Tabs -->
+      <div class="auth-tabs" id="authTabs">
+        <button class="auth-tab {% if tab == 'register' %}{% else %}active{% endif %}" data-tab="login">Sign In</button>
+        <button class="auth-tab {% if tab == 'register' %}active{% endif %}" data-tab="register">Register</button>
+        <span class="tab-indicator"></span>
+      </div>
+
+      <!-- LOGIN panel -->
+      <div class="auth-panel {% if tab == 'register' %}hidden{% endif %}" id="panel-login">
+        {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+        {% endif %}
+        {% if reg_success %}
+        <div class="alert alert-success">{{ reg_success }}</div>
+        {% endif %}
+
+        <form method="POST" action="/login" class="auth-form" autocomplete="off">
+          <div class="field-group">
+            <label class="field-label">Username</label>
+            <div class="field-wrap">
+              <span class="field-icon">👤</span>
+              <input type="text" name="username" class="field-input" placeholder="Enter username" required/>
+            </div>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Password</label>
+            <div class="field-wrap">
+              <span class="field-icon">🔑</span>
+              <input type="password" name="password" class="field-input" placeholder="Enter password" required/>
+            </div>
+          </div>
+          <div class="field-group remember-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+            <input type="checkbox" id="remember" name="remember" style="accent-color: #00ffcc; width: 16px; height: 16px; cursor: pointer;"/>
+            <label for="remember" style="color: #a1a1aa; font-size: 0.9rem; cursor: pointer; margin: 0; display: inline-block;">Remember me</label>
+          </div>
+          <button type="submit" class="btn-primary btn-full">
+            <span>Enter Synapse</span>
+            <span class="btn-arrow">→</span>
+          </button>
+        </form>
+      </div>
+
+      <!-- REGISTER panel -->
+      <div class="auth-panel {% if tab != 'register' %}hidden{% endif %}" id="panel-register">
+        {% if reg_error %}
+        <div class="alert alert-error">{{ reg_error }}</div>
+        {% endif %}
+
+        <form method="POST" action="/register" class="auth-form" autocomplete="off">
+          <div class="field-group">
+            <label class="field-label">Username</label>
+            <div class="field-wrap">
+              <span class="field-icon">👤</span>
+              <input type="text" name="username" class="field-input" placeholder="Choose a username" required/>
+            </div>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Password</label>
+            <div class="field-wrap">
+              <span class="field-icon">🔑</span>
+              <input type="password" name="password" class="field-input" placeholder="Create password" required/>
+            </div>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Confirm Password</label>
+            <div class="field-wrap">
+              <span class="field-icon">🔒</span>
+              <input type="password" name="confirm" class="field-input" placeholder="Repeat password" required/>
+            </div>
+          </div>
+          <button type="submit" class="btn-primary btn-full">
+            <span>Create Account</span>
+            <span class="btn-arrow">→</span>
+          </button>
+        </form>
+      </div>
+
+    </div><!-- /auth-card -->
+  </div><!-- /auth-wrapper -->
+
+  <script>
+    // Tab switching
+    const tabs = document.querySelectorAll('.auth-tab');
+    const panels = document.querySelectorAll('.auth-panel');
+    const indicator = document.querySelector('.tab-indicator');
+
+    function activateTab(name) {
+      tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+      panels.forEach(p => p.classList.toggle('hidden', p.id !== 'panel-' + name));
+      const active = document.querySelector('.auth-tab.active');
+      if (active) {
+        indicator.style.left  = active.offsetLeft + 'px';
+        indicator.style.width = active.offsetWidth + 'px';
+      }
+    }
+
+    tabs.forEach(t => t.addEventListener('click', () => activateTab(t.dataset.tab)));
+
+    // Initialise indicator position
+    window.addEventListener('load', () => {
+      const active = document.querySelector('.auth-tab.active');
+      if (active) { indicator.style.left = active.offsetLeft + 'px'; indicator.style.width = active.offsetWidth + 'px'; }
+      
+      // Remember Me Feature
+      const loginForm = document.querySelector('#panel-login form');
+      if (loginForm) {
+        const usernameInput = loginForm.querySelector('input[name="username"]');
+        const passwordInput = loginForm.querySelector('input[name="password"]');
+        const rememberCheckbox = document.getElementById('remember');
+
+        if (localStorage.getItem('synapse_remember') === 'true') {
+          if (rememberCheckbox) rememberCheckbox.checked = true;
+          if (usernameInput) usernameInput.value = localStorage.getItem('synapse_username') || '';
+          if (passwordInput) passwordInput.value = localStorage.getItem('synapse_password') || '';
+        }
+
+        loginForm.addEventListener('submit', (e) => {
+          if (loginForm.dataset.animating === 'true') return;
+          e.preventDefault();
+          loginForm.dataset.animating = 'true';
+
+          // Persist remember-me
+          if (rememberCheckbox && rememberCheckbox.checked) {
+            localStorage.setItem('synapse_remember', 'true');
+            localStorage.setItem('synapse_username', usernameInput.value);
+            localStorage.setItem('synapse_password', passwordInput.value);
+          } else {
+            localStorage.removeItem('synapse_remember');
+            localStorage.removeItem('synapse_username');
+            localStorage.removeItem('synapse_password');
+          }
+
+          // ── Portal-Enter Animation ──────────────────────────────────
+          // 1. Inject full-screen iris overlay
+          const overlay = document.createElement('div');
+          overlay.className = 'portal-overlay';
+          document.body.appendChild(overlay);
+
+          // 2. Fade out card + brand text (subtle scale-down exit)
+          const authCard   = document.querySelector('.auth-card');
+          const brandName  = document.querySelector('.brand-name');
+          const brandTag   = document.querySelector('.brand-tagline');
+          if (authCard)  authCard.classList.add('portal-exit');
+          if (brandName) brandName.classList.add('portal-exit');
+          if (brandTag)  brandTag.classList.add('portal-exit');
+
+          // 3. Start logo portal-spin on next frame (forces GPU layer)
+          const icon = document.querySelector('.brand-icon');
+          if (icon) {
+            // Remove the idle spin animation first
+            icon.style.animation = 'none';
+            // Force reflow so the browser registers the new class cleanly
+            void icon.offsetWidth;
+            icon.classList.add('portal-spin');
+          }
+
+          // 4. Trigger the background iris wipe slightly after logo starts
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              overlay.classList.add('activate');
+            });
+          });
+
+          // 5. Submit after animation completes (1.35s)
+          setTimeout(() => {
+            loginForm.submit();
+          }, 1300);
+        });
+      }
+    });
+  </script>
+</body>
+</html>

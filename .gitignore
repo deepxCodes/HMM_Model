@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+synapse.db
+*.db
+bookcorpus_sentences.txt

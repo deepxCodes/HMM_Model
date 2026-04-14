@@ -1,0 +1,43 @@
+**Overview of Synapse HMM Autocomplete Engine**
+
+### 1. Implemented Features Till Now
+- **Hidden Markov Model Core**: Built an HMM autocomplete engine with custom probability matrices. Features mathematical fixes like **Laplace Smoothing (k)** and **Temperature-based Softmax Sampling** for creative or strict generation capabilities.
+- **Corpus Management & NLTK**: Integrated NLTK with the **Brown Corpus** to bootstrap the base training dataset, while dynamically learning from user interactions.
+- **Persistent Database (`database.py`)**: Implemented an SQLite architecture storing a static base corpus, dynamic user-generated sentences, and a user authentication system (with password hashing).
+- **Interactive UI (`app.py`)**: Developed a Streamlit web interface featuring dataset uploaders (CSV, JSON, TXT), psychological profile tracking, customizable autocomplete length, and an expandable Explainability Dashboard (Reasoning trace, Transition graphs, matrices).
+- **Feedback Loop Engine**: The frontend includes interactive accept/reject/edit capabilities that directly stream corrected context back into the persistent SQLite database.
+
+### 2. Problems: Slowing Down During Actions
+**The Cause:**
+Currently, whenever a user interacts with the app (e.g., clicking "Predict Completions", "Accept", or "Edit"), it triggers a full `session_state` rerun in Streamlit. Two major bottlenecks exist:
+1. **Full Corpus Retraining**: In `app.py`, `model.train(st.session_state.base_corpus, st.session_state.user_corpus)` is executed synchronously. It processes the *entire* corpus from scratch, tokenizing and running `nltk.pos_tag` on every sentence every single time an interaction occurs.
+2. **Dense Matrix Rebuilds**: `model.build_probs()` recalculates full transition and emission probability dictionaries for the entire vocabulary upon every UI interaction.
+
+**How to Resolve:**
+1. **Incremental Learning Update**: Refactor `HMMGenerator` to support incremental additions. Instead of clearing state and retraining the full corpus, write an `update_model(new_sentence)` function that only tokenizes and tags the newly added sentence, updating existing `Counter` objects.
+2. **Streamlit Component Caching**: Wrap the instantiated `HMMGenerator` model with Streamlit's `@st.cache_resource`. This ensures the object persists in memory across UI reruns, fetching only the incremental delta rather than rebuilding.
+3. **On-the-fly Probability Calculation**: Instead of pre-building dense dictionaries over the whole vocabulary with `build_probs()`, calculate probabilities dynamically during the `autocomplete` execution relying on the raw frequency maps.
+
+### 3. Improvements Recommended
+- **Model Accuracy**: Explore bi-gram/tri-gram (Higher-order HMMs) or Viterbi decoding variants for higher coherence.
+- **Data Pruning**: Implement periodic pruning of the user corpus to purge noisy or misspelled additions that negatively bias the generated syntax over time.
+- **UI Enhancements**: Transition standard Streamlit widgets to custom HTML/JS/CSS for faster interaction without needing full-page reruns. 
+
+### 4. Team Task Delegation
+*Given a 4-member team, 2 members are already assigned to Model Training and PPT Making roles. Below are the drafted responsibilities for the Backend and UI/CSS roles, alongside the existing assignments:*
+
+**Member 1: Model Training Role (Already Assigned)**
+- Focus on `hmm_model.py`: Implement incremental learning updates (`update()` function) to prevent full-corpus retraining on every interaction.
+- Explore higher-order mathematical enhancements (e.g., Viterbi decoding variants) to improve sentence generation coherence.
+
+**Member 2: PPT Making Role (Already Assigned)**
+- Create presentation slides detailing the mathematical fixes (Laplace Smoothing, Temperature sampling) and the persistent database architecture.
+- Document and visualize the Explainability Dashboard, capturing screenshots of the transition graphs and AI reasoning trace for demonstrations.
+
+**Member 3: Backend Role**
+- Session State & Caching: Modify `app.py` to initialize and cache the `HMMGenerator` model instance using Streamlit's `@st.cache_resource` to solve UI layout reloading slowdowns.
+- Database Pipeline: Ensure the `database.py` logic accurately appends accepted user suggestions without triggering heavy synchronous NLTK loops.
+
+**Member 4: UI and CSS Design Role**
+- Apply aesthetic enhancements in `style.css` to solidify the retro-futuristic styling and responsive layout.
+- Implement micro-interaction CSS animations (e.g., glowing effects, dynamic resizing) for the Accept/Reject/Edit buttons and design the layout components for the Explainability Dashboard.
